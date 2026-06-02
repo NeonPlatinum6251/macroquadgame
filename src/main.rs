@@ -1,5 +1,7 @@
-use macroquad::{color, prelude::*};
+use macroquad::{prelude::*};
 use macroquad::rand::ChooseRandom;
+
+
 const MOVEMENT_SPEED:f32 = 200.0;
 
 struct Shape {
@@ -8,7 +10,7 @@ struct Shape {
     x: f32,
     y: f32,
     colour:Color,
-    collided:bool
+    collided:bool,
 }
 impl Shape {
     fn collides_with(&self,other:&Self) ->bool {
@@ -20,6 +22,7 @@ impl Shape {
             y:self.y - self.size/2.0,
             w:self.size,
             h:self.size,
+            
         }
     }
 }
@@ -30,13 +33,17 @@ async fn main() {
     rand::srand(miniquad::date::now() as u64);
     let mut gameover:bool = false;
     let mut squares = vec![];
+    let mut bullets: Vec<Shape> = vec![];
+    let mut lastshot = get_time();
     let mut circle = Shape {
         size: 32.0,
         speed: MOVEMENT_SPEED,
         x:screen_width() / 2.0,
         y:screen_height()/2.0,
         colour: GREEN,
+        collided:false,
     };
+
     let colours:Vec<Color> = vec![GREEN,PURPLE,BLUE,BLACK,PINK];
     loop {
         clear_background(RED);
@@ -54,6 +61,19 @@ async fn main() {
             if is_key_down(KeyCode::Up) {
                 circle.y -= circle.speed * delta_time;
             }
+            if is_key_pressed(KeyCode::Space) {
+                if get_time() - lastshot > 0.5 {
+                    bullets.push(Shape {
+                        x:circle.x,
+                        y:circle.y,
+                        size:5.0,
+                        speed:circle.speed*2.0,
+                        collided:false,
+                        colour:WHITE,
+                    });
+                    lastshot = get_time();
+                }
+            }
 
             circle.x = clamp(circle.x, 0.0, screen_width());
             circle.y = clamp(circle.y, 0.0, screen_height());
@@ -67,20 +87,38 @@ async fn main() {
                     x: rand::gen_range(size/2.0, screen_width()-size/2.0),
                     y: -size,
                     colour:rand_colour,
+                    collided:false,
                 });
             }
             for square in &mut squares {
                 square.y += square.speed * delta_time;
             }
+            for bullet in &mut bullets {
+                bullet.y -= bullet.speed *delta_time;
+            }
         
-            squares.retain(|square| square.y < screen_height() + square.size);    
+            squares.retain(|square| square.y < screen_height() + square.size);
+            bullets.retain(|bullet| bullet.y > 0.0 - bullet.size/2.0);
+            squares.retain(|square| !square.collided);
+            bullets.retain(|bullet| !bullet.collided);
+    
         }
         if squares.iter().any(|square|circle.collides_with(square)) {
             gameover = true;
         }
 
+        for square in squares.iter_mut() {
+            for bullet in bullets.iter_mut() {
+                if bullet.collides_with(square) {
+                    bullet.collided = true;
+                    square.collided = true;
+                }
+            }
+        }
+
         if gameover && is_key_pressed(KeyCode::Space) {
             squares.clear();
+            bullets.clear();
             circle.x = screen_width() / 2.0;
             circle.y = screen_height() / 2.0;
             gameover = false;
@@ -97,7 +135,11 @@ async fn main() {
                 );
         }
     
+        for bullet in &bullets {
+            draw_circle(bullet.x, bullet.y, bullet.size/2.0, bullet.colour);
+        }
         draw_circle(circle.x, circle.y, circle.size, YELLOW);
+        
 
         if gameover {
             let text = "GAME OVER!";
@@ -107,10 +149,9 @@ async fn main() {
                 screen_width() / 2.0 - text_dimensions.width / 2.0,
                 screen_height() / 2.0,
                 50.0,
-                RED,
+                DARKPURPLE,
             );
         }
         next_frame().await
     }
 }
-
