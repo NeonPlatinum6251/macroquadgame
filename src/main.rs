@@ -1,6 +1,7 @@
 use macroquad::{prelude::*};
 use macroquad::rand::ChooseRandom;
 use std::fs;
+use macroquad_particles::{self as particles, ColorCurve, Emitter, EmitterConfig};
 
 const MOVEMENT_SPEED:f32 = 200.0;
 const FRAGMENT_SHADER: &str = include_str!("starfield-shader.glsl");
@@ -35,6 +36,29 @@ struct Shape {
     colour:Color,
     collided:bool,
 }
+
+fn particle_explosion() ->particles::EmitterConfig {
+    particles::EmitterConfig {
+        local_coords: false,
+        one_shot: true,
+        emitting: true,
+        lifetime: 0.6,
+        lifetime_randomness:0.3,
+        explosiveness: 0.65,
+        initial_direction_spread: 2.0 * std::f32::consts::PI,
+        initial_velocity: 300.0,
+        initial_velocity_randomness: 0.8,
+        size: 3.0,
+        size_randomness: 0.3,
+        colors_curve: ColorCurve {
+            start: RED,
+            mid: ORANGE,
+            end: RED,
+        },
+        ..Default::default()
+    }
+}
+
 impl Shape {
     fn collides_with(&self,other:&Self) ->bool {
         self.rect().overlaps(&other.rect())
@@ -90,6 +114,9 @@ async fn main() {
             ..MaterialParams::default() 
         },
     ).unwrap();
+
+    let mut explosions:Vec<(Emitter, Vec2)> = vec![];
+
     loop {
         clear_background(BLACK);
 
@@ -116,6 +143,7 @@ async fn main() {
                 if is_key_pressed(KeyCode::Space) {
                     squares.clear();
                     bullets.clear();
+                    explosions.clear();
                     circle.x = screen_width() / 2.0;
                     circle.y = screen_height() / 2.0;
                     score = 0;
@@ -204,9 +232,18 @@ async fn main() {
                             square.collided = true;
                             score +=square.size.round() as u32;
                             highscore = highscore.max(score);
+                            explosions.push((
+                                Emitter::new(EmitterConfig {
+                                    amount: square.size.round() as u32 * 2,
+                                    ..particle_explosion()
+                                }),
+                                vec2(square.x,square.y),
+                            ));
                         }
                     }
                 }
+
+                explosions.retain(|(explosions,_)| explosions.config.emitting);
                 for square in &squares {
 
                     draw_rectangle(
@@ -229,6 +266,11 @@ async fn main() {
                     25.0,
                     WHITE,
                 );
+
+                for (explosion, coords) in explosions.iter_mut() {
+                    explosion.draw(*coords);
+                }
+
                 let highscore_text = format!("High score: {}", highscore);
                 let text_dimensions =measure_text(highscore_text.as_str(),None,25,1.0);
                 draw_text(
