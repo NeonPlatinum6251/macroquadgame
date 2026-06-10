@@ -1,8 +1,16 @@
 use macroquad::{prelude::*};
 use macroquad::rand::ChooseRandom;
 use std::fs;
-use macroquad_particles::{self as particles, ColorCurve, Emitter, EmitterConfig};
+use macroquad_particles::{self as particles, AtlasConfig, Emitter, EmitterConfig};
 use macroquad::experimental::animation::{AnimatedSprite, Animation};
+use macroquad::audio::{load_sound, play_sound, play_sound_once, PlaySoundParams};
+
+
+/*TODO:
+music for different gamestates
+volume button
+exit the game
+ */
 
 const MOVEMENT_SPEED:f32 = 200.0;
 const FRAGMENT_SHADER: &str = include_str!("starfield-shader.glsl");
@@ -47,15 +55,11 @@ fn particle_explosion() ->particles::EmitterConfig {
         lifetime_randomness:0.3,
         explosiveness: 0.65,
         initial_direction_spread: 2.0 * std::f32::consts::PI,
-        initial_velocity: 300.0,
+        initial_velocity: 400.0,
         initial_velocity_randomness: 0.8,
-        size: 3.0,
+        size: 16.0,
         size_randomness: 0.3,
-        colors_curve: ColorCurve {
-            start: RED,
-            mid: ORANGE,
-            end: RED,
-        },
+        atlas: Some(AtlasConfig::new(5,1,0..)),
         ..Default::default()
     }
 }
@@ -88,11 +92,19 @@ async fn main() {
     let mut highscore:u32 = fs::read_to_string("highscore.dat")
     .map_or(Ok(0), |i| i.parse::<u32>())
     .unwrap_or(0);
+
+    let theme_music = load_sound("8bit-spaceshooter.ogg").await.unwrap();
+    let sound_explosion = load_sound("explosion.wav").await.unwrap();
+    let sound_laser = load_sound("laser.wav").await.unwrap();
     
     let ship_texture: Texture2D = load_texture("ship.png").await.expect("Couldnt'load file");
     ship_texture.set_filter(FilterMode::Nearest);
     let bullet_texture:Texture2D = load_texture("laser-bolts.png").await.expect("Couldnt load file");
     bullet_texture.set_filter(FilterMode::Nearest);
+    let explosion_texture: Texture2D = load_texture("explosion.png").await.expect("Couldn't load file");
+    explosion_texture.set_filter(FilterMode::Nearest);
+    let enemy_small_texture: Texture2D = load_texture("enemy-small.png").await.expect("Couldnt load file");
+    enemy_small_texture.set_filter(FilterMode::Nearest);
     build_textures_atlas();
 
     let mut bullet_sprite = AnimatedSprite::new(
@@ -142,6 +154,18 @@ async fn main() {
         true
     );
 
+    let mut small_enemy_sprite = AnimatedSprite::new(
+        17,
+        16,
+        &[Animation {
+            name:"enemy_small".to_string(),
+            row:0,
+            frames:2,
+            fps:12,
+        }],
+        true,
+    );
+
     let mut circle = Shape {
         size: 32.0,
         speed: MOVEMENT_SPEED,
@@ -171,6 +195,14 @@ async fn main() {
     ).unwrap();
 
     let mut explosions:Vec<(Emitter, Vec2)> = vec![];
+
+    play_sound(
+        &theme_music,
+        PlaySoundParams {
+            looped:true,
+            volume:1.,
+        }
+        );
 
     loop {
         clear_background(BLACK);
@@ -243,6 +275,7 @@ async fn main() {
                             colour:WHITE,
                         });
                         lastshot = get_time();
+                        play_sound_once(&sound_laser);
                     }
                 }
                 if is_key_pressed(KeyCode::Escape) {
@@ -272,6 +305,7 @@ async fn main() {
                 }
                 ship_sprite.update();
                 bullet_sprite.update();
+                small_enemy_sprite.update();
 
                 squares.retain(|square| square.y < screen_height() + square.size);
                 bullets.retain(|bullet| bullet.y > 0.0 - bullet.size/2.0);
@@ -294,25 +328,31 @@ async fn main() {
                             highscore = highscore.max(score);
                             explosions.push((
                                 Emitter::new(EmitterConfig {
-                                    amount: square.size.round() as u32 * 2,
+                                    amount: square.size.round() as u32 * 4,
+                                    texture: Some(explosion_texture.clone()),
                                     ..particle_explosion()
                                 }),
                                 vec2(square.x,square.y),
                             ));
+                            play_sound_once(&sound_explosion);
                         }
                     }
                 }
 
                 explosions.retain(|(explosions,_)| explosions.config.emitting);
+                let enemy_frame = small_enemy_sprite.frame();
                 for square in &squares {
-
-                    draw_rectangle(
-                        square.x - square.size/2.0, 
-                        square.y - square.size/2.0, 
-                        square.size, 
-                        square.size,
-                        square.colour,
-                        );
+                    draw_texture_ex(
+                        &enemy_small_texture,
+                        square.x -square.size / 2.0,
+                        square.y -square.size / 2.0,
+                        WHITE,
+                        DrawTextureParams {
+                            dest_size: Some(vec2(square.size, square.size)),
+                            source: Some(enemy_frame.source_rect),
+                            ..Default::default()
+                        },
+                    );
                 }
                 let bullet_frame = bullet_sprite.frame();
                 for bullet in &bullets {
